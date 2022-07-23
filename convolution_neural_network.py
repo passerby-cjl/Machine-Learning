@@ -7,19 +7,31 @@ class CNNModel(DNN.DNNModel):
     lamdas = [0,0.01,0.02,0.04,0.08,0.16,0.32,0.64,1,2,4,8,10]
     epsolum = 0.1
     type='CNN'
-    def __init__(self, S_l: list, learning_rate, lamda=0, theta=None):#channel,k_size,stride,activate
+    def __init__(self, S_l: list, learning_rate, lamda=0, theta=None):
+        #each layour in S_l consists of(channel,k_size,stride,padding,activate)
+        #except the layour0 consists of(channel,dim,padding,activate) representing for input layour
         super().__init__(S_l, learning_rate, lamda, theta)
 
     def _pad(self, x, leftup, rightdown):
-        return np.pad(x,((0, 0), (leftup, rightdown), (leftup, rightdown), (0, 0)), constant_values=0)
+        return np.pad(x,((0, 0), *eval('(leftup, rightdown),'*(x.ndim-2)), (0, 0)), constant_values=0)
 
     def _im2col(self, ims, k_size, stride=1):
-        N, H, W, C = ims.shape
-        oh = (H - k_size) // stride + 1
-        ow = (W - k_size) // stride + 1
-        strides = (*ims.strides[:-3], ims.strides[-3]*stride, ims.strides[-2]*stride, *ims.strides[-3:])
-        col = np.lib.stride_tricks.as_strided(ims, shape=(N,oh,ow,k_size,k_size,C), strides=strides)
-        return col.reshape(*col.shape[:3], -1)
+        #N, H, W, C = ims.shape
+        dim=ims.ndim-2
+        # set shape as (N,*(outputshape),*(k_size,k_size,...),C)
+        shape=np.array(list(ims.shape[:-1])+[k_size]*dim+[ims.shape[-1]])
+        shape[1:dim+1]=(shape[1:dim+1]-k_size)//stride+1
+        #oh = (H - k_size) // stride + 1
+        #ow = (W - k_size) // stride + 1
+        #print(N,oh,ow,k_size,k_size,C)
+        strides=[ims.strides[0]]
+        for axis in range(dim):
+            strides.append(ims.strides[axis+1]*stride)
+        strides += list(ims.strides[1:])
+        #strides = (*ims.strides[0], ims.strides[-3]*stride, ims.strides[-2]*stride, *ims.strides[1:])
+        #col = np.lib.stride_tricks.as_strided(ims, shape=(N,oh,ow,k_size,k_size,C), strides=strides)
+        col = np.lib.stride_tricks.as_strided(ims, shape=shape, strides=strides)
+        return col.reshape(*col.shape[:dim+1], -1)
 
     def _preproceed_ims(self, ims, layourinfo):
         if layourinfo[-2]:
@@ -29,8 +41,12 @@ class CNNModel(DNN.DNNModel):
         return col
 
     def _preproceed_delta(self, delta, layourinfo, inputshape):
-        tmp=np.zeros((delta.shape[0],*inputshape[1:3], delta.shape[3]))
-        tmp[:,::layourinfo[2],::layourinfo[2],:]=delta
+        tmp=np.zeros((delta.shape[0],*inputshape[1:-1], delta.shape[-1]))
+        cmd='tmp[:'
+        cmd+=',::layourinfo[2]'*(tmp.ndim-2)
+        cmd+=',:]=delta'
+        exec(cmd)
+        #tmp[:,::layourinfo[2],::layourinfo[2],:]=delta
         if layourinfo[-2]:
             delta=self._pad(tmp, layourinfo[1]//2, (layourinfo[1]-1)//2)
         else:
@@ -93,17 +109,17 @@ def getMNIST():
         for i in cvlab:
             temp=np.zeros((1,1,10))
             temp[0][0][i]=1
-            cvlabs.append(temp)
+            labs2.append(temp)
         for i in range(10000):
             img=struct.unpack_from('>784B', imbuf, imindex)
             imindex+=struct.calcsize('>784B')
             img=np.reshape(img,(28,28,1))
-            cvimgs.append(img)
+            imgs2.append(img)
     return imgs1, labs1, imgs2, labs2
 
 if __name__ == "__main__":
-    # x=np.array([[[[1,2,3,4],[4,5,6,7],[7,8,9,10],[10,11,12,13]],[[1,2,3,4],[4,5,6,7],[7,8,9,10],[10,11,12,13]],[[1,2,3,4],[4,5,6,7],[7,8,9,10],[10,11,12,13]]],\
-    #              [[[12,11,10,9],[9,8,7,6],[6,5,4,3],[3,2,1,0]],[[12,11,10,9],[9,8,7,6],[6,5,4,3],[3,2,1,0]],[[12,11,10,9],[9,8,7,6],[6,5,4,3],[3,2,1,0]]]])
+    # easy examples for training
+    ## of two dimensions
     X = np.array([[[[1, 1, 1], [2, 2, 2], [3, 3, 3], [4, 4, 4], [5, 5, 5]],
                    [[4, 4, 4], [5, 5, 5], [6, 6, 6], [7, 7, 7], [8, 8, 8]],
                    [[7, 7, 7], [8, 8, 8], [9, 9, 9], [10, 10, 10], [11, 11, 11]],
@@ -114,15 +130,18 @@ if __name__ == "__main__":
                    [[6, 6, 6], [5, 5, 5], [4, 4, 4], [3, 3, 3], [2, 2, 2]],
                    [[3, 3, 3], [2, 2, 2], [1, 1, 1], [0, 0, 0], [-1, -1, -1]],
                    [[0, 0, 0], [-1, -1, -1], [-2, -2, -2], [-3, -3, -3], [-4, -4, -4]]]])
-    Y = np.array([[[[12, 12], [11, 11], [10, 10], [9, 9]], [[9, 9], [8, 8], [7, 7], [6, 6]],
-                   [[6, 6], [5, 5], [4, 4], [3, 3]], [[3, 3], [2, 2], [1, 1], [0, 0]]],
-                  [[[1, 1], [2, 2], [3, 3], [4, 4]], [[4, 4], [5, 5], [6, 6], [7, 7]],
-                   [[7, 7], [8, 8], [9, 9], [10, 10]], [[10, 10], [11, 11], [12, 12], [13, 13]]]])
-    B = np.array([[[[1]]], [[[0]]]])
+    Y = np.array([[[[1]]], [[[0]]]])
+    ## of one dimension
+    D1 = np.array([[[1,1,1],[2,2,2],[3,3,3],[4,4,4],[5,5,5]],[[5,5,5],[4,4,4],[3,3,3],[2,2,2],[1,1,1]]])
+    D2 = np.array([[[1]],[[0]]])
 
-    trainimgs, trainlabs, cvimgs, cvlabs=getMNIST()
-    ocrcnn=CNNModel([(1, True, ''), (3, 3, 2, True, 'ReLU'), (5, 3, 2, True, 'ReLU'), (7, 3, 2, True, 'ReLU'), (10, 4, 1, False, 'Sig')], 0.001)
+    cnn=CNNModel([(3,2,True), (2,3,2,True,'ReLU'),(1,3,2,False,'ReLU')],0.01)
+    for echo in range(100):
+        cnn.train(X,Y)
+    print(cnn.hypothesis(X)[0][-1])
     ################################ train with MNIST
+    #trainimgs, trainlabs, cvimgs, cvlabs=getMNIST()
+    #ocrcnn=CNNModel([(1, True, ''), (3, 3, 2, True, 'ReLU'), (5, 3, 2, True, 'ReLU'), (7, 3, 2, True, 'ReLU'), (10, 4, 1, False, 'Sig')], 0.001)
     # ocrcnn=load()
     # ocrcnn.learning_rate=0.0001
     # try:
@@ -134,4 +153,4 @@ if __name__ == "__main__":
     # finally:
     #     ocrcnn.save()
     ########################
-    print(ocrcnn.hypothesis([cvimgs[2]])[0][-1], cvlabs[2])
+    #print(ocrcnn.hypothesis([cvimgs[2]])[0][-1], cvlabs[2])
