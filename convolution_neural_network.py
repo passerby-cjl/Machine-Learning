@@ -41,16 +41,27 @@ class CNNModel(DNN.DNNModel):
         return col
 
     def _preproceed_delta(self, delta, layourinfo, inputshape):
-        tmp=np.zeros((delta.shape[0],*inputshape[1:-1], delta.shape[-1]))
-        cmd='tmp[:'
-        cmd+=',::layourinfo[2]'*(tmp.ndim-2)
-        cmd+=',:]=delta'
+        shape=(np.array(delta.shape[1:-1]))*layourinfo[2]
+        tmp=np.zeros((delta.shape[0],*tuple(shape), delta.shape[-1]))
+        cmd='tmp[:'+',::layourinfo[2]'*(tmp.ndim-2)+',:]=delta'
         exec(cmd)
-        #tmp[:,::layourinfo[2],::layourinfo[2],:]=delta
         if layourinfo[-2]:
-            delta=self._pad(tmp, layourinfo[1]//2, (layourinfo[1]-1)//2)
+            pad_width=[(0,0),(0,0)]
+            for dim in range(1, tmp.ndim-1):
+                pad_width.insert(-1, (layourinfo[1]//2, inputshape[dim]+layourinfo[1]-1-layourinfo[1]//2-tmp.shape[dim]))
+            delta=np.pad(tmp, pad_width, constant_values=0)
+            #delta=self._pad(delta, layourinfo[1]//2, (layourinfo[1]-1)//2)
         else:
-            delta=self._pad(delta, layourinfo[1]-1, layourinfo[1]-1)
+            pad_width=[(0,0),(0,0)]
+            for dim in range(1, tmp.ndim-1):
+                pad_width.insert(-1, (layourinfo[1]-1, inputshape[dim]-tmp.shape[dim]))
+            delta=np.pad(tmp, pad_width, constant_values=0)
+            #delta=self._pad(delta, layourinfo[1]-1, layourinfo[1]-1)
+        #tmp[:,::layourinfo[2],::layourinfo[2],:]=delta
+        # if layourinfo[-2]:
+        #     delta=self._pad(tmp, layourinfo[1]//2, (layourinfo[1]-1)//2)
+        # else:
+        #     delta=self._pad(tmp, layourinfo[1]-1, layourinfo[1]-1)
         col_delta=self._im2col(delta, layourinfo[1], 1)
         return col_delta
 
@@ -136,7 +147,7 @@ if __name__ == "__main__":
     D2 = np.array([[[1]],[[0]]])
 
     cnn=CNNModel([(3,2,True), (2,3,2,True,'ReLU'),(1,3,2,False,'ReLU')],0.01)
-    for echo in range(100):
+    for episode in range(100):
         cnn.train(X,Y)
     print(cnn.hypothesis(X)[0][-1])
     ################################ train with MNIST
